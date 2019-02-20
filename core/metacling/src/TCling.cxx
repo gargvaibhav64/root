@@ -90,9 +90,11 @@ clang/LLVM technology.
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
+#include "clang/Parse/Parser.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Sema.h"
-#include "clang/Parse/Parser.h"
+#include "clang/Serialization/ASTReader.h"
+#include "clang/Serialization/GlobalModuleIndex.h"
 
 #include "cling/Interpreter/ClangInternalState.h"
 #include "cling/Interpreter/DynamicLibraryManager.h"
@@ -1135,6 +1137,79 @@ static std::string GetModuleNameAsString(clang::Module *M, const clang::Preproce
    return std::string(llvm::sys::path::stem(ModuleName));
 }
 
+
+static bool HaveFullGlobalModuleIndex = false;
+static GlobalModuleIndex *loadGlobalModuleIndex(cling::Interpreter& interp, SourceLocation TriggerLoc) {
+   CompilerInstance &CI = *interp.getCI();
+   Preprocessor& PP = CI.getPreprocessor();
+   auto ModuleManager = CI.getModuleManager();
+   assert(ModuleManager);
+   //StringRef ModuleIndexPath = HSI.getModuleCachePath();
+   HeaderSearch& HSI = PP.getHeaderSearchInfo();
+   //HSI.setModuleCachePath(TROOT::GetLibDir().Data());
+   std::string ModuleIndexPath = TROOT::GetLibDir().Data();
+   if (ModuleIndexPath.empty())
+      return nullptr;
+   // Get an existing global index.  This loads it if not already
+   // loaded.
+   ModuleManager->resetForReload();
+   ModuleManager->loadGlobalIndex();
+   GlobalModuleIndex *GlobalIndex = ModuleManager->getGlobalIndex();
+   //printf("1\n");
+   // If the global index doesn't exist, create it.
+   if (!GlobalIndex && CI.hasFileManager()) {
+      // printf("2\n");
+      // llvm::sys::fs::create_directories(ModuleIndexPath);
+      // GlobalModuleIndex::writeIndex(CI.getFileManager(), CI.getPCHContainerReader(),
+      //                               ModuleIndexPath);
+      // printf("%s\n", ModuleIndexPath.c_str());
+
+      // ModuleManager->resetForReload();
+      // ModuleManager->loadGlobalIndex();
+      // GlobalIndex = ModuleManager->getGlobalIndex();
+      //GlobalIndex->printStats();
+      //GlobalIndex->dump();
+   }
+   // For finding modules needing to be imported for fixit messages,
+   // we need to make the global index cover all modules, so we do that here.
+   
+   if (!GlobalIndex && !HaveFullGlobalModuleIndex) {
+     //printf("3\n");
+      ModuleMap &MMap = PP.getHeaderSearchInfo().getModuleMap();
+      bool RecreateIndex = false;
+      for (ModuleMap::module_iterator I = MMap.module_begin(),
+              E = MMap.module_end(); I != E; ++I) {
+         Module *TheModule = I->second;
+         // We do want the index only of the prebuilt modules
+         std::string ModuleName = GetModuleNameAsString(TheModule, PP);
+         Warning("loadGlobalModuleIndex", "Loading file %s for %s",
+                 TheModule->Name.c_str(), ModuleName.c_str());
+         if (ModuleName.empty())
+            continue;
+         LoadModule(ModuleName, interp);
+         RecreateIndex = true;
+         // const FileEntry *Entry = TheModule->getASTFile();
+         // if (!Entry) {
+         //    SmallVector<std::pair<IdentifierInfo *, SourceLocation>, 2> Path;
+         //    Path.push_back(std::make_pair(PP.getIdentifierInfo(TheModule->Name), TriggerLoc));
+         //    std::reverse(Path.begin(), Path.end());
+         //    // Load a module as hidden.  This also adds it to the global index.
+         //    CI.loadModule(TheModule->DefinitionLoc, Path, Module::Hidden, false);
+         //    RecreateIndex = true;
+         // }
+      }
+      if (RecreateIndex) {
+         GlobalModuleIndex::writeIndex(CI.getFileManager(), CI.getPCHContainerReader(),
+                                       ModuleIndexPath);
+         ModuleManager->resetForReload();
+         ModuleManager->loadGlobalIndex();
+         GlobalIndex = ModuleManager->getGlobalIndex();
+      }
+      HaveFullGlobalModuleIndex = true;
+   }
+   return GlobalIndex;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Initialize the cling interpreter interface.
 /// \param argv - array of arguments passed to the cling::Interpreter constructor
@@ -1208,6 +1283,7 @@ TCling::TCling(const char *name, const char *title, const char* const argv[])
 
    if (fCxxModulesEnabled) {
       clingArgsStorage.push_back("-modulemap_overlay=" + std::string(TROOT::GetIncludeDir().Data()));
+      clingArgsStorage.push_back("-fmodules-cache-path=" + std::string(TROOT::GetLibDir()));
    }
 
    // FIXME: This only will enable frontend timing reports.
@@ -1286,7 +1362,10 @@ TCling::TCling(const char *name, const char *title, const char* const argv[])
       LoadModules({"libc", "stl"}, *fInterpreter);
 #endif
 
-      // Load core modules
+      if (!fromRootCling)
+         loadGlobalModuleIndex(*fInterpreter, SourceLocation());
+
+      /*// Load core modules
       // This should be vector in order to be able to pass it to LoadModules
       std::vector<std::string> CoreModules = {"ROOT_Foundation_C","ROOT_Config",
          "ROOT_Foundation_Stage1_NoRTTI", "Core", "RIO"};
@@ -1324,7 +1403,7 @@ TCling::TCling(const char *name, const char *title, const char* const argv[])
 
       // Check that the gROOT macro was exported by any core module.
       assert(fInterpreter->getMacro("gROOT") && "Couldn't load gROOT macro?");
-
+      */
       // C99 decided that it's a very good idea to name a macro `I` (the letter I).
       // This seems to screw up nearly all the template code out there as `I` is
       // common template parameter name and iterator variable name.
@@ -1969,10 +2048,10 @@ void TCling::RegisterModule(const char* modulename,
 
    if (gIgnoredPCMNames.find(modulename) == gIgnoredPCMNames.end()) {
       TString pcmFileName(ROOT::TMetaUtils::GetModuleFileName(modulename).c_str());
-      if (!LoadPCM(pcmFileName, headers, triggerFunc)) {
-         ::Error("TCling::RegisterModule", "cannot find dictionary module %s",
-                 ROOT::TMetaUtils::GetModuleFileName(modulename).c_str());
-      }
+      // if (!LoadPCM(pcmFileName, headers, triggerFunc)) {
+      //    ::Error("TCling::RegisterModule", "cannot find dictionary module %s",
+      //            ROOT::TMetaUtils::GetModuleFileName(modulename).c_str());
+      // }
    }
 
    bool oldValue = false;
