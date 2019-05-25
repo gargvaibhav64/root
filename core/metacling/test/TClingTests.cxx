@@ -112,7 +112,6 @@ TEST_F(TClingTests, GetEnumWithSameVariableName)
    ASSERT_TRUE(en != nullptr);
 }
 
-#ifndef R__USE_CXXMODULES
 // Check if we can get the source code of function definitions.
 TEST_F(TClingTests, MakeInterpreterValue)
 {
@@ -121,4 +120,4 @@ TEST_F(TClingTests, MakeInterpreterValue)
    gInterpreter->Evaluate("my_func_to_print", *v);
    ASSERT_THAT(v->ToString(), testing::HasSubstr("void my_func_to_print"));
 }
-#endif
+
