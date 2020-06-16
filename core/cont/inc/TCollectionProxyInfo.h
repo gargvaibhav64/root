@@ -26,6 +26,7 @@
 #include <utility>
 
 #if defined(_WIN32)
+   #include <typeinfo>
    #if _MSC_VER<1300
       #define TYPENAME
       #define R__VCXX6
