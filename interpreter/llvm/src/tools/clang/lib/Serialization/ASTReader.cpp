@@ -3364,6 +3364,8 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
 
     case LATE_PARSED_TEMPLATE: {
       LateParsedTemplates.append(Record.begin(), Record.end());
+      LateParsedTemplatesModulesMap.insert(std::make_pair(&F, std::move(LateParsedTemplates)));
+      LateParsedTemplates.clear();
       break;
     }
 
@@ -8082,25 +8084,27 @@ void ASTReader::ReadPendingInstantiations(
 void ASTReader::ReadLateParsedTemplates(
     llvm::MapVector<const FunctionDecl *, std::unique_ptr<LateParsedTemplate>>
         &LPTMap) {
-  for (unsigned Idx = 0, N = LateParsedTemplates.size(); Idx < N;
-       /* In loop */) {
-    FunctionDecl *FD = cast<FunctionDecl>(GetDecl(LateParsedTemplates[Idx++]));
+  for(auto &LPT : LateParsedTemplatesModulesMap){
+    ModuleFile *FMod = LPT.first;
+    SmallVector<uint64_t, 1> LateParsed(LPT.second);
+    for (unsigned Idx = 0, N = LateParsed.size(); Idx < N;
+        /* In loop */) {
+      FunctionDecl *FD = cast<FunctionDecl>(GetLocalDecl(*FMod, LateParsed[Idx++]));
+      
+      auto LT = llvm::make_unique<LateParsedTemplate>();
+      LT->D = GetLocalDecl(*FMod, LateParsed[Idx++]);
 
-    auto LT = llvm::make_unique<LateParsedTemplate>();
-    LT->D = GetDecl(LateParsedTemplates[Idx++]);
+      ModuleFile *F = getOwningModuleFile(LT->D);
+      assert(F && "No module");
 
-    ModuleFile *F = getOwningModuleFile(LT->D);
-    assert(F && "No module");
+      unsigned TokN = LateParsed[Idx++];
+      LT->Toks.reserve(TokN);
+      for (unsigned T = 0; T < TokN; ++T)
+        LT->Toks.push_back(ReadToken(*F, LateParsed, Idx));
 
-    unsigned TokN = LateParsedTemplates[Idx++];
-    LT->Toks.reserve(TokN);
-    for (unsigned T = 0; T < TokN; ++T)
-      LT->Toks.push_back(ReadToken(*F, LateParsedTemplates, Idx));
-
-    LPTMap.insert(std::make_pair(FD, std::move(LT)));
+      LPTMap.insert(std::make_pair(FD, std::move(LT)));
+    }
   }
-
-  LateParsedTemplates.clear();
 }
 
 void ASTReader::LoadSelector(Selector Sel) {
