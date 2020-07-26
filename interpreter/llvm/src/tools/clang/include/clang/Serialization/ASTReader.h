@@ -868,6 +868,8 @@ private:
   // \brief A list of late parsed template function data.
   SmallVector<uint64_t, 1> LateParsedTemplates;
 
+  llvm::MapVector<ModuleFile *, SmallVector<uint64_t, 1>> LateParsedTemplatesModulesMap;
+
 public:
   struct ImportedSubmodule {
     serialization::SubmoduleID ID;
