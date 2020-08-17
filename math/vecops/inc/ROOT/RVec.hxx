@@ -48,6 +48,9 @@
 #include <vdt/vdtMath.h>
 #endif
 
+#ifndef M_PI
+#define M_PI       3.14159265358979323846264338328      // Pi
+#endif
 
 namespace ROOT {
 namespace VecOps {

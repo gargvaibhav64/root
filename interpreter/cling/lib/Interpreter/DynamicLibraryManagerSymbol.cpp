@@ -16,6 +16,7 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Object/COFF.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/Path.h"
 
@@ -543,6 +544,24 @@ namespace cling {
 
         ++SymbolsCount;
         symbols.push_back(SymNameErr.get());
+      }
+    }
+
+    if (BinObjFile->isCOFF()) {
+      llvm::object::COFFObjectFile* CoffObj = cast<llvm::object::COFFObjectFile>(BinObjFile);
+
+      export_directory_iterator I = CoffObj->export_directory_begin();
+      export_directory_iterator E = CoffObj->export_directory_end();
+
+      for (; I != E; I = ++I) {
+        StringRef Name;
+        if (I->getSymbolName(Name))
+          continue;
+        if (Name.empty())
+          continue;
+
+        ++SymbolsCount;
+        symbols.push_back(Name);
       }
     }
 

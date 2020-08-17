@@ -74,4 +74,5 @@ ROOT_STANDARD_LIBRARY_PACKAGE(Ged
     Gui
     Tree
     TreePlayer
+  NO_CXXMODULE
 )

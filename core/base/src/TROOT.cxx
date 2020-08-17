@@ -969,10 +969,10 @@ TROOT::~TROOT()
       SafeDelete(fCleanups);
 #endif
 
-#ifndef _MSC_VER
+// #ifndef _MSC_VER
       // deleting the interpreter makes things crash at exit in some cases
       delete fInterpreter;
-#endif
+// #endif
 
       // Prints memory stats
       TStorage::PrintStatistics();
